@@ -1,82 +1,96 @@
-local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
-local k3 = import 'ksonnet/ksonnet.beta.3/k.libsonnet';
-local configMapList = k3.core.v1.configMapList;
+local kubeRbacProxyContainer = import './kube-rbac-proxy/container.libsonnet';
 
-(import 'grafana/grafana.libsonnet') +
-(import 'kube-state-metrics/kube-state-metrics.libsonnet') +
-(import 'kube-state-metrics-mixin/mixin.libsonnet') +
-(import 'node-exporter/node-exporter.libsonnet') +
-(import 'node-mixin/mixin.libsonnet') +
-(import 'alertmanager/alertmanager.libsonnet') +
-(import 'prometheus-operator/prometheus-operator.libsonnet') +
-(import 'prometheus/prometheus.libsonnet') +
-(import 'prometheus-adapter/prometheus-adapter.libsonnet') +
-(import 'kubernetes-mixin/mixin.libsonnet') +
-(import 'prometheus/mixin.libsonnet') +
-(import 'alerts/alerts.libsonnet') +
-(import 'rules/rules.libsonnet') + {
+(import 'github.com/brancz/kubernetes-grafana/grafana/grafana.libsonnet') +
+(import './kube-state-metrics/kube-state-metrics.libsonnet') +
+(import 'github.com/kubernetes/kube-state-metrics/jsonnet/kube-state-metrics-mixin/mixin.libsonnet') +
+(import './node-exporter/node-exporter.libsonnet') +
+(import 'github.com/prometheus/node_exporter/docs/node-mixin/mixin.libsonnet') +
+(import './alertmanager/alertmanager.libsonnet') +
+(import 'github.com/prometheus/alertmanager/doc/alertmanager-mixin/mixin.libsonnet') +
+(import 'github.com/prometheus-operator/prometheus-operator/jsonnet/prometheus-operator/prometheus-operator.libsonnet') +
+(import 'github.com/prometheus-operator/prometheus-operator/jsonnet/mixin/mixin.libsonnet') +
+(import './prometheus/prometheus.libsonnet') +
+(import './prometheus-adapter/prometheus-adapter.libsonnet') +
+(import 'github.com/kubernetes-monitoring/kubernetes-mixin/mixin.libsonnet') +
+(import 'github.com/prometheus/prometheus/documentation/prometheus-mixin/mixin.libsonnet') +
+(import './alerts/alerts.libsonnet') +
+(import './rules/rules.libsonnet') +
+{
   kubePrometheus+:: {
-    namespace: k.core.v1.namespace.new($._config.namespace),
+    namespace: {
+      apiVersion: 'v1',
+      kind: 'Namespace',
+      metadata: {
+        name: $._config.namespace,
+      },
+    },
   },
-  prometheusOperator+:: {
-    service+: {
-      spec+: {
-        ports: [
+  prometheusOperator+::
+    {
+      service+: {
+        spec+: {
+          ports: [
+            {
+              name: 'https',
+              port: 8443,
+              targetPort: 'https',
+            },
+          ],
+        },
+      },
+      serviceMonitor+: {
+        spec+: {
+          endpoints: [
+            {
+              port: 'https',
+              scheme: 'https',
+              honorLabels: true,
+              bearerTokenFile: '/var/run/secrets/kubernetes.io/serviceaccount/token',
+              tlsConfig: {
+                insecureSkipVerify: true,
+              },
+            },
+          ],
+        },
+      },
+      clusterRole+: {
+        rules+: [
           {
-            name: 'https',
-            port: 8443,
-            targetPort: 'https',
+            apiGroups: ['authentication.k8s.io'],
+            resources: ['tokenreviews'],
+            verbs: ['create'],
+          },
+          {
+            apiGroups: ['authorization.k8s.io'],
+            resources: ['subjectaccessreviews'],
+            verbs: ['create'],
           },
         ],
       },
-    },
-    serviceMonitor+: {
-      spec+: {
-        endpoints: [
-          {
-            port: 'https',
-            scheme: 'https',
-            honorLabels: true,
-            bearerTokenFile: '/var/run/secrets/kubernetes.io/serviceaccount/token',
-            tlsConfig: {
-              insecureSkipVerify: true,
-            },
-          },
-        ]
-      },
-    },
-    clusterRole+: {
-      rules+: [
-        {
-          apiGroups: ['authentication.k8s.io'],
-          resources: ['tokenreviews'],
-          verbs: ['create'],
-        },
-        {
-          apiGroups: ['authorization.k8s.io'],
-          resources: ['subjectaccessreviews'],
-          verbs: ['create'],
-        },
-      ],
-    },
-  } +
-  ((import 'kube-prometheus/kube-rbac-proxy/container.libsonnet') {
-    config+:: {
-      kubeRbacProxy: {
-        local cfg = self,
-        image: $._config.imageRepos.kubeRbacProxy + ':' + $._config.versions.kubeRbacProxy,
-        name: 'kube-rbac-proxy',
-        securePortName: 'https',
-        securePort: 8443,
-        secureListenAddress: ':%d' % self.securePort,
-        upstream: 'http://127.0.0.1:8080/',
-        tlsCipherSuites: $._config.tlsCipherSuites,
-      },
-    },
-  }).deploymentMixin,
+    } +
+    (kubeRbacProxyContainer {
+       config+:: {
+         kubeRbacProxy: {
+           local cfg = self,
+           image: $._config.imageRepos.kubeRbacProxy + ':' + $._config.versions.kubeRbacProxy,
+           name: 'kube-rbac-proxy',
+           securePortName: 'https',
+           securePort: 8443,
+           secureListenAddress: ':%d' % self.securePort,
+           upstream: 'http://127.0.0.1:8080/',
+           tlsCipherSuites: $._config.tlsCipherSuites,
+         },
+       },
+     }).deploymentMixin,
+
 
   grafana+:: {
-    dashboardDefinitions: configMapList.new(super.dashboardDefinitions),
+    local dashboardDefinitions = super.dashboardDefinitions,
+    dashboardDefinitions: {
+      apiVersion: 'v1',
+      kind: 'ConfigMapList',
+      items: dashboardDefinitions,
+    },
     serviceMonitor: {
       apiVersion: 'monitoring.coreos.com/v1',
       kind: 'ServiceMonitor',
@@ -90,12 +104,10 @@ local configMapList = k3.core.v1.configMapList;
             app: 'grafana',
           },
         },
-        endpoints: [
-          {
-            port: 'http',
-            interval: '15s',
-          },
-        ],
+        endpoints: [{
+          port: 'http',
+          interval: '15s',
+        }],
       },
     },
   },
@@ -103,9 +115,8 @@ local configMapList = k3.core.v1.configMapList;
   _config+:: {
     namespace: 'default',
 
-    versions+:: {
-      grafana: '7.1.0',
-    },
+    versions+:: { grafana: '7.3.5', kubeRbacProxy: 'v0.8.0' },
+    imageRepos+:: { kubeRbacProxy: 'quay.io/brancz/kube-rbac-proxy' },
 
     tlsCipherSuites: [
       'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256',  // required by h2: http://golang.org/cl/30721
@@ -136,6 +147,8 @@ local configMapList = k3.core.v1.configMapList;
       'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305',
     ],
 
+    runbookURLPattern: 'https://github.com/prometheus-operator/kube-prometheus/wiki/%s',
+
     cadvisorSelector: 'job="kubelet", metrics_path="/metrics/cadvisor"',
     kubeletSelector: 'job="kubelet", metrics_path="/metrics"',
     kubeStateMetricsSelector: 'job="kube-state-metrics"',
@@ -148,6 +161,8 @@ local configMapList = k3.core.v1.configMapList;
     coreDNSSelector: 'job="kube-dns"',
     podLabel: 'pod',
 
+    alertmanagerName: '{{ $labels.namespace }}/{{ $labels.pod}}',
+    alertmanagerClusterLabels: 'namespace,service',
     alertmanagerSelector: 'job="alertmanager-' + $._config.alertmanager.name + '",namespace="' + $._config.namespace + '"',
     prometheusSelector: 'job="prometheus-' + $._config.prometheus.name + '",namespace="' + $._config.namespace + '"',
     prometheusName: '{{$labels.namespace}}/{{$labels.pod}}',
@@ -184,13 +199,7 @@ local configMapList = k3.core.v1.configMapList;
         limits: { cpu: '250m', memory: '180Mi' },
       },
     },
-    prometheus+:: {
-      rules: $.prometheusRules + $.prometheusAlerts,
-    },
-
-    grafana+:: {
-      dashboards: $.grafanaDashboards,
-    },
-
+    prometheus+:: { rules: $.prometheusRules + $.prometheusAlerts },
+    grafana+:: { dashboards: $.grafanaDashboards },
   },
 }

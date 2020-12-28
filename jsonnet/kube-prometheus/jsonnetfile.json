@@ -13,7 +13,7 @@
     {
       "source": {
         "git": {
-          "remote": "https://github.com/coreos/etcd",
+          "remote": "https://github.com/etcd-io/etcd",
           "subdir": "Documentation/etcd-mixin"
         }
       },
@@ -22,21 +22,20 @@
     {
       "source": {
         "git": {
-          "remote": "https://github.com/coreos/prometheus-operator",
+          "remote": "https://github.com/prometheus-operator/prometheus-operator",
           "subdir": "jsonnet/prometheus-operator"
         }
       },
-      "version": "release-0.40"
+      "version": "release-0.44"
     },
     {
       "source": {
         "git": {
-          "remote": "https://github.com/ksonnet/ksonnet-lib",
-          "subdir": ""
+          "remote": "https://github.com/prometheus-operator/prometheus-operator",
+          "subdir": "jsonnet/mixin"
         }
       },
-      "version": "master",
-      "name": "ksonnet"
+      "version": "master"
     },
     {
       "source": {
@@ -54,7 +53,7 @@
           "subdir": "jsonnet/kube-state-metrics"
         }
       },
-      "version": "master"
+      "version": "release-1.9"
     },
     {
       "source": {
@@ -81,8 +80,27 @@
           "subdir": "documentation/prometheus-mixin"
         }
       },
-      "version": "master",
+      "version": "release-2.23",
       "name": "prometheus"
+    },
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/prometheus/alertmanager",
+          "subdir": "doc/alertmanager-mixin"
+        }
+      },
+      "version": "master",
+      "name": "alertmanager"
+    },
+    {
+      "source": {
+        "git": {
+          "remote": "https://github.com/thanos-io/thanos",
+          "subdir": "mixin"
+        }
+      },
+      "version": "release-0.17"
     }
   ],
   "legacyImports": true

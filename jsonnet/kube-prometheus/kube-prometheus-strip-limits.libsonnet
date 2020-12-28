@@ -1,5 +1,5 @@
 // Strips spec.containers[].limits for certain containers
-// https://github.com/coreos/kube-prometheus/issues/72
+// https://github.com/prometheus-operator/kube-prometheus/issues/72
 {
   _config+:: {
     resources+:: {
@@ -23,9 +23,9 @@
         template+: {
           spec+: {
             local addArgs(c) =
-                if c.name == 'prometheus-operator'
-                then c + {args+: ['--config-reloader-cpu=0']}
-                else c,
+              if c.name == 'prometheus-operator'
+              then c { args+: ['--config-reloader-cpu=0'] }
+              else c,
             containers: std.map(addArgs, super.containers),
           },
         },

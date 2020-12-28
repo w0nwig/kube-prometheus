@@ -8,7 +8,7 @@ The content of this project is written in [jsonnet](http://jsonnet.org/). This p
 
 Components included in this package:
 
-* The [Prometheus Operator](https://github.com/coreos/prometheus-operator)
+* The [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator)
 * Highly available [Prometheus](https://prometheus.io/)
 * Highly available [Alertmanager](https://github.com/prometheus/alertmanager)
 * [Prometheus node-exporter](https://github.com/prometheus/node_exporter)
@@ -47,8 +47,10 @@ This stack is meant for cluster monitoring, so it is pre-configured to collect m
     - [Alertmanager configuration](#alertmanager-configuration)
     - [Adding additional namespaces to monitor](#adding-additional-namespaces-to-monitor)
       - [Defining the ServiceMonitor for each additional Namespace](#defining-the-servicemonitor-for-each-additional-namespace)
+    - [Monitoring all namespaces](#monitoring-all-namespaces)
     - [Static etcd configuration](#static-etcd-configuration)
     - [Pod Anti-Affinity](#pod-anti-affinity)
+    - [Stripping container resource limits](#stripping-container-resource-limits)
     - [Customizing Prometheus alerting/recording rules and Grafana dashboards](#customizing-prometheus-alertingrecording-rules-and-grafana-dashboards)
     - [Exposing Prometheus/Alermanager/Grafana via Ingress](#exposing-prometheusalermanagergrafana-via-ingress)
   - [Minikube Example](#minikube-example)
@@ -58,6 +60,7 @@ This stack is meant for cluster monitoring, so it is pre-configured to collect m
       - [Authorization problem](#authorization-problem)
     - [kube-state-metrics resource usage](#kube-state-metrics-resource-usage)
   - [Contributing](#contributing)
+  - [License](#license)
 
 ## Prerequisites
 
@@ -66,7 +69,7 @@ You will need a Kubernetes cluster, that's it! By default it is assumed, that th
 This means the kubelet configuration must contain these flags:
 
 * `--authentication-token-webhook=true` This flag enables, that a `ServiceAccount` token can be used to authenticate against the kubelet(s).  This can also be enabled by setting the kubelet configuration value `authentication.webhook.enabled` to `true`.
-* `--authorization-mode=Webhook` This flag enables, that the kubelet will perform an RBAC request with the API to determine, whether the requesting entity (Prometheus in this case) is allow to access a resource, in specific for this project the `/metrics` endpoint.  This can also be enabled by setting the kubelet configuration value `authorization.mode` to `Webhook`.
+* `--authorization-mode=Webhook` This flag enables, that the kubelet will perform an RBAC request with the API to determine, whether the requesting entity (Prometheus in this case) is allowed to access a resource, in specific for this project the `/metrics` endpoint.  This can also be enabled by setting the kubelet configuration value `authorization.mode` to `Webhook`.
 
 This stack provides [resource metrics](https://github.com/kubernetes/metrics#resource-metrics-api) by deploying the [Prometheus Adapter](https://github.com/DirectXMan12/k8s-prometheus-adapter/).
 This adapter is an Extension API Server and Kubernetes needs to be have this feature enabled, otherwise the adapter has no effect, but is still deployed.
@@ -76,7 +79,7 @@ This adapter is an Extension API Server and Kubernetes needs to be have this fea
 To try out this stack, start [minikube](https://github.com/kubernetes/minikube) with the following command:
 
 ```shell
-$ minikube delete && minikube start --kubernetes-version=v1.18.1 --memory=6g --bootstrapper=kubeadm --extra-config=kubelet.authentication-token-webhook=true --extra-config=kubelet.authorization-mode=Webhook --extra-config=scheduler.address=0.0.0.0 --extra-config=controller-manager.address=0.0.0.0
+$ minikube delete && minikube start --kubernetes-version=v1.20.0 --memory=6g --bootstrapper=kubeadm --extra-config=kubelet.authentication-token-webhook=true --extra-config=kubelet.authorization-mode=Webhook --extra-config=scheduler.address=0.0.0.0 --extra-config=controller-manager.address=0.0.0.0
 ```
 
 The kube-prometheus stack includes a resource metrics API server, so the metrics-server addon is not necessary. Ensure the metrics-server addon is disabled on minikube:
@@ -91,18 +94,19 @@ $ minikube addons disable metrics-server
 
 The following versions are supported and work as we test against these versions in their respective branches. But note that other versions might work!
 
-| kube-prometheus stack | Kubernetes 1.14 | Kubernetes 1.15 | Kubernetes 1.16 | Kubernetes 1.17 | Kubernetes 1.18 |
+| kube-prometheus stack | Kubernetes 1.16 | Kubernetes 1.17 | Kubernetes 1.18 | Kubernetes 1.19 | Kubernetes 1.20 |
 |-----------------------|-----------------|-----------------|-----------------|-----------------|-----------------|
-| `release-0.3`         | ✔              | ✔              | ✔              | ✔              | ✗
-| `release-0.4`         | ✗              | ✗              | ✔ (v1.16.5+)   | ✔              | ✗
-| `release-0.5`         | ✗              | ✗              | ✗              | ✗              | ✔
-| `HEAD`                | ✗              | ✗              | ✗              | ✗              | ✔
+| `release-0.4`         | ✔ (v1.16.5+)    | ✔               | ✗               | ✗               | ✗               |
+| `release-0.5`         | ✗               | ✗               | ✔               | ✗               | ✗               |
+| `release-0.6`         | ✗               | ✗               | ✔               | ✔               | ✗               |
+| `release-0.7`         | ✗               | ✗               | ✗               | ✔               | ✔               |
+| `HEAD`                | ✗               | ✗               | ✗               | ✔               | ✔               |
 
 Note: Due to [two](https://github.com/kubernetes/kubernetes/issues/83778) [bugs](https://github.com/kubernetes/kubernetes/issues/86359) in Kubernetes v1.16.1, and prior to Kubernetes v1.16.5 the kube-prometheus release-0.4 branch only supports v1.16.5 and higher.  The `extension-apiserver-authentication-reader` role in the kube-system namespace can be manually edited to include list and watch permissions in order to workaround the second issue with Kubernetes v1.16.2 through v1.16.4.
 
 ## Quickstart
 
->Note: For versions before Kubernetes v1.18.z refer to the [Kubernetes compatibility matrix](#kubernetes-compatibility-matrix) in order to choose a compatible branch.
+>Note: For versions before Kubernetes v1.20.z refer to the [Kubernetes compatibility matrix](#kubernetes-compatibility-matrix) in order to choose a compatible branch.
 
 This project is intended to be used as a library (i.e. the intent is not for you to create your own modified copy of this repository).
 
@@ -171,12 +175,12 @@ Install this library in your own project with [jsonnet-bundler](https://github.c
 $ mkdir my-kube-prometheus; cd my-kube-prometheus
 $ jb init  # Creates the initial/empty `jsonnetfile.json`
 # Install the kube-prometheus dependency
-$ jb install github.com/coreos/kube-prometheus/jsonnet/kube-prometheus@release-0.4 # Creates `vendor/` & `jsonnetfile.lock.json`, and fills in `jsonnetfile.json`
+$ jb install github.com/prometheus-operator/kube-prometheus/jsonnet/kube-prometheus@release-0.4 # Creates `vendor/` & `jsonnetfile.lock.json`, and fills in `jsonnetfile.json`
 ```
 
 > `jb` can be installed with `go get github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb`
 
-> An e.g. of how to install a given version of this library: `jb install github.com/coreos/kube-prometheus/jsonnet/kube-prometheus@release-0.4`
+> An e.g. of how to install a given version of this library: `jb install github.com/prometheus-operator/kube-prometheus/jsonnet/kube-prometheus@release-0.4`
 
 In order to update the kube-prometheus dependency, simply use the jsonnet-bundler update functionality:
 ```shell
@@ -204,6 +208,7 @@ local kp =
   // (import 'kube-prometheus/kube-prometheus-static-etcd.libsonnet') +
   // (import 'kube-prometheus/kube-prometheus-thanos-sidecar.libsonnet') +
   // (import 'kube-prometheus/kube-prometheus-custom-metrics.libsonnet') +
+  // (import 'kube-prometheus/kube-prometheus-external-metrics.libsonnet') +
   {
     _config+:: {
       namespace: 'monitoring',
@@ -324,9 +329,9 @@ These are the available fields with their respective default values:
         prometheus: "quay.io/prometheus/prometheus",
         alertmanager: "quay.io/prometheus/alertmanager",
         kubeStateMetrics: "quay.io/coreos/kube-state-metrics",
-        kubeRbacProxy: "quay.io/coreos/kube-rbac-proxy",
+        kubeRbacProxy: "quay.io/brancz/kube-rbac-proxy",
         nodeExporter: "quay.io/prometheus/node-exporter",
-        prometheusOperator: "quay.io/coreos/prometheus-operator",
+        prometheusOperator: "quay.io/prometheus-operator/prometheus-operator",
     },
 
     prometheus+:: {
@@ -514,13 +519,13 @@ Standard Kubernetes manifests are all written using [ksonnet-lib](https://github
 
 [embedmd]:# (examples/ksonnet-example.jsonnet)
 ```jsonnet
-local k = import 'ksonnet/ksonnet.beta.3/k.libsonnet';
-local daemonset = k.apps.v1beta2.daemonSet;
-
 ((import 'kube-prometheus/kube-prometheus.libsonnet') + {
    nodeExporter+: {
-     daemonset+:
-       daemonset.mixin.metadata.withNamespace('my-custom-namespace'),
+     daemonset+: {
+       metadata+: {
+         namespace: 'my-custom-namespace',
+       },
+     },
    },
  }).nodeExporter.daemonset
 ```
@@ -645,7 +650,37 @@ local kp = (import 'kube-prometheus/kube-prometheus.libsonnet') + {
 { ['grafana-' + name]: kp.grafana[name] for name in std.objectFields(kp.grafana) }
 ```
 
-> NOTE: make sure your service resources has the right labels (eg. `'app': 'myapp'`) applied. Prometheus use kubernetes labels to discovery resources inside the namespaces.
+> NOTE: make sure your service resources have the right labels (eg. `'app': 'myapp'`) applied. Prometheus uses kubernetes labels to discover resources inside the namespaces.
+
+### Monitoring all namespaces
+
+In case you want to monitor all namespaces in a cluster, you can add the following mixin. Also, make sure to empty the namespaces defined in prometheus so that roleBindings are not created against them.  
+
+[embedmd]:# (examples/all-namespaces.jsonnet)
+```jsonnet
+local kp = (import 'kube-prometheus/kube-prometheus.libsonnet') +
+           (import 'kube-prometheus/kube-prometheus-all-namespaces.libsonnet') + {
+  _config+:: {
+    namespace: 'monitoring',
+
+    prometheus+:: {
+      namespaces: [],
+    },
+  },
+};
+
+{ ['00namespace-' + name]: kp.kubePrometheus[name] for name in std.objectFields(kp.kubePrometheus) } +
+{ ['0prometheus-operator-' + name]: kp.prometheusOperator[name] for name in std.objectFields(kp.prometheusOperator) } +
+{ ['node-exporter-' + name]: kp.nodeExporter[name] for name in std.objectFields(kp.nodeExporter) } +
+{ ['kube-state-metrics-' + name]: kp.kubeStateMetrics[name] for name in std.objectFields(kp.kubeStateMetrics) } +
+{ ['alertmanager-' + name]: kp.alertmanager[name] for name in std.objectFields(kp.alertmanager) } +
+{ ['prometheus-' + name]: kp.prometheus[name] for name in std.objectFields(kp.prometheus) } +
+{ ['grafana-' + name]: kp.grafana[name] for name in std.objectFields(kp.grafana) }
+```
+
+> NOTE: This configuration can potentially make your cluster insecure especially in a multi-tenant cluster. This is because this gives Prometheus visibility over the whole cluster which might not be expected in a scenario when certain namespaces are locked down for security reasons.
+
+Proceed with [creating ServiceMonitors for the services in the namespaces](#defining-the-servicemonitor-for-each-additional-namespace) you actually want to monitor
 
 ### Static etcd configuration
 
@@ -663,6 +698,29 @@ possible, one can include the [kube-prometheus-anti-affinity.libsonnet](jsonnet/
 (import 'kube-prometheus/kube-prometheus-anti-affinity.libsonnet')
 ```
 
+### Stripping container resource limits
+
+Sometimes in small clusters, the CPU/memory limits can get high enough for alerts to be fired continuously. To prevent this, one can strip off the predefined limits.
+To do that, one can import the following mixin
+
+[embedmd]:# (examples/strip-limits.jsonnet)
+```jsonnet
+local kp = (import 'kube-prometheus/kube-prometheus.libsonnet') +
+           (import 'kube-prometheus/kube-prometheus-strip-limits.libsonnet') + {
+  _config+:: {
+    namespace: 'monitoring',
+  },
+};
+
+{ ['00namespace-' + name]: kp.kubePrometheus[name] for name in std.objectFields(kp.kubePrometheus) } +
+{ ['0prometheus-operator-' + name]: kp.prometheusOperator[name] for name in std.objectFields(kp.prometheusOperator) } +
+{ ['node-exporter-' + name]: kp.nodeExporter[name] for name in std.objectFields(kp.nodeExporter) } +
+{ ['kube-state-metrics-' + name]: kp.kubeStateMetrics[name] for name in std.objectFields(kp.kubeStateMetrics) } +
+{ ['alertmanager-' + name]: kp.alertmanager[name] for name in std.objectFields(kp.alertmanager) } +
+{ ['prometheus-' + name]: kp.prometheus[name] for name in std.objectFields(kp.prometheus) } +
+{ ['grafana-' + name]: kp.grafana[name] for name in std.objectFields(kp.grafana) }
+```
+
 ### Customizing Prometheus alerting/recording rules and Grafana dashboards
 
 See [developing Prometheus rules and Grafana dashboards](docs/developing-prometheus-rules-and-grafana-dashboards.md) guide.
@@ -675,7 +733,13 @@ See [exposing Prometheus/Alertmanager/Grafana](docs/exposing-prometheus-alertman
 
 To use an easy to reproduce example, see [minikube.jsonnet](examples/minikube.jsonnet), which uses the minikube setup as demonstrated in [Prerequisites](#prerequisites). Because we would like easy access to our Prometheus, Alertmanager and Grafana UIs, `minikube.jsonnet` exposes the services as NodePort type services.
 
+## Continuous Delivery
+
+Working examples of use with continuous delivery tools are found in examples/continuous-delivery.
+
 ## Troubleshooting
+
+See the general [guidelines](docs/community-support.md) for getting support from the community.
 
 ### Error retrieving kubelet metrics
 
@@ -727,3 +791,7 @@ the following process:
 3. Update the pinned kube-prometheus dependency in `jsonnetfile.lock.json`: `jb update`
 3. Generate dependent `*.yaml` files: `make generate`
 4. Commit the generated changes.
+
+## License
+
+Apache License 2.0, see [LICENSE](https://github.com/prometheus-operator/kube-prometheus/blob/master/LICENSE).

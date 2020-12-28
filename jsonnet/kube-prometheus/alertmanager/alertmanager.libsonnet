@@ -1,5 +1,3 @@
-local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
-
 {
   _config+:: {
     namespace: 'default',
@@ -42,114 +40,123 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
           repeat_interval: '12h',
           receiver: 'Default',
           routes: [
-            {
-              receiver: 'Watchdog',
-              match: {
-                alertname: 'Watchdog',
-              },
-            },
-            {
-              receiver: 'Critical',
-              match: {
-                severity: 'critical',
-              },
-            },
+            { receiver: 'Watchdog', match: { alertname: 'Watchdog' } },
+            { receiver: 'Critical', match: { severity: 'critical' } },
           ],
         },
         receivers: [
-          {
-            name: 'Default',
-          },
-          {
-            name: 'Watchdog',
-          },
-          {
-            name: 'Critical',
-          },
+          { name: 'Default' },
+          { name: 'Watchdog' },
+          { name: 'Critical' },
         ],
       },
       replicas: 3,
+      labels: {
+        'app.kubernetes.io/name': 'alertmanager-' + $._config.alertmanager.name,
+        'app.kubernetes.io/version': $._config.versions.alertmanager,
+        'app.kubernetes.io/component': 'router',
+        'app.kubernetes.io/part-of': 'kube-prometheus',
+      },
+      selectorLabels: {
+        [labelName]: $._config.alertmanager.labels[labelName]
+        for labelName in std.objectFields($._config.alertmanager.labels)
+        if !std.setMember(labelName, ['app.kubernetes.io/version'])
+      },
     },
   },
 
   alertmanager+:: {
-    secret:
-      local secret = k.core.v1.secret;
-
-      if std.type($._config.alertmanager.config) == 'object' then
-        secret.new('alertmanager-' + $._config.alertmanager.name, {})
-        .withStringData({ 'alertmanager.yaml': std.manifestYamlDoc($._config.alertmanager.config) }) +
-        secret.mixin.metadata.withNamespace($._config.namespace)
-      else
-        secret.new('alertmanager-' + $._config.alertmanager.name, { 'alertmanager.yaml': std.base64($._config.alertmanager.config) }) +
-        secret.mixin.metadata.withNamespace($._config.namespace),
-
-    serviceAccount:
-      local serviceAccount = k.core.v1.serviceAccount;
-
-      serviceAccount.new('alertmanager-' + $._config.alertmanager.name) +
-      serviceAccount.mixin.metadata.withNamespace($._config.namespace),
-
-    service:
-      local service = k.core.v1.service;
-      local servicePort = k.core.v1.service.mixin.spec.portsType;
-
-      local alertmanagerPort = servicePort.newNamed('web', 9093, 'web');
-
-      service.new('alertmanager-' + $._config.alertmanager.name, { app: 'alertmanager', alertmanager: $._config.alertmanager.name }, alertmanagerPort) +
-      service.mixin.spec.withSessionAffinity('ClientIP') +
-      service.mixin.metadata.withNamespace($._config.namespace) +
-      service.mixin.metadata.withLabels({ alertmanager: $._config.alertmanager.name }),
-
-    serviceMonitor:
-      {
-        apiVersion: 'monitoring.coreos.com/v1',
-        kind: 'ServiceMonitor',
-        metadata: {
-          name: 'alertmanager',
-          namespace: $._config.namespace,
-          labels: {
-            'k8s-app': 'alertmanager',
-          },
-        },
-        spec: {
-          selector: {
-            matchLabels: {
-              alertmanager: $._config.alertmanager.name,
-            },
-          },
-          endpoints: [
-            {
-              port: 'web',
-              interval: '30s',
-            },
-          ],
-        },
+    secret: {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      type: 'Opaque',
+      metadata: {
+        name: 'alertmanager-' + $._config.alertmanager.name,
+        namespace: $._config.namespace,
       },
+      stringData: {
+        'alertmanager.yaml': if std.type($._config.alertmanager.config) == 'object'
+        then
+          std.manifestYamlDoc($._config.alertmanager.config)
+        else
+          $._config.alertmanager.config,
+      },
+    },
 
-    alertmanager:
-      {
-        apiVersion: 'monitoring.coreos.com/v1',
-        kind: 'Alertmanager',
-        metadata: {
-          name: $._config.alertmanager.name,
-          namespace: $._config.namespace,
-          labels: {
+    serviceAccount: {
+      apiVersion: 'v1',
+      kind: 'ServiceAccount',
+      metadata: {
+        name: 'alertmanager-' + $._config.alertmanager.name,
+        namespace: $._config.namespace,
+      },
+    },
+
+    service: {
+      apiVersion: 'v1',
+      kind: 'Service',
+      metadata: {
+        name: 'alertmanager-' + $._config.alertmanager.name,
+        namespace: $._config.namespace,
+        labels: { alertmanager: $._config.alertmanager.name } + $._config.alertmanager.labels,
+      },
+      spec: {
+        ports: [
+          { name: 'web', targetPort: 'web', port: 9093 },
+        ],
+        selector: {
+          app: 'alertmanager',
+          alertmanager: $._config.alertmanager.name
+        } + $._config.alertmanager.selectorLabels,
+        sessionAffinity: 'ClientIP',
+      },
+    },
+
+    serviceMonitor: {
+      apiVersion: 'monitoring.coreos.com/v1',
+      kind: 'ServiceMonitor',
+      metadata: {
+        name: 'alertmanager',
+        namespace: $._config.namespace,
+        labels: $._config.alertmanager.labels,
+      },
+      spec: {
+        selector: {
+          matchLabels: {
             alertmanager: $._config.alertmanager.name,
-          },
+          } + $._config.alertmanager.selectorLabels,
         },
-        spec: {
-          replicas: $._config.alertmanager.replicas,
-          version: $._config.versions.alertmanager,
-          image: $._config.imageRepos.alertmanager + ':' + $._config.versions.alertmanager,
-          nodeSelector: { 'kubernetes.io/os': 'linux' },
-          serviceAccountName: 'alertmanager-' + $._config.alertmanager.name,
-          securityContext: {
-            runAsUser: 1000,
-            runAsNonRoot: true,
-            fsGroup: 2000,
-          },
+        endpoints: [
+          { port: 'web', interval: '30s' },
+        ],
+      },
+    },
+
+    alertmanager: {
+      apiVersion: 'monitoring.coreos.com/v1',
+      kind: 'Alertmanager',
+      metadata: {
+        name: $._config.alertmanager.name,
+        namespace: $._config.namespace,
+        labels: {
+          alertmanager: $._config.alertmanager.name,
+        } + $._config.alertmanager.labels,
+      },
+      spec: {
+        replicas: $._config.alertmanager.replicas,
+        version: $._config.versions.alertmanager,
+        image: $._config.imageRepos.alertmanager + ':' + $._config.versions.alertmanager,
+        podMetadata: {
+          labels: $._config.alertmanager.labels,
+        },
+        nodeSelector: { 'kubernetes.io/os': 'linux' },
+        serviceAccountName: 'alertmanager-' + $._config.alertmanager.name,
+        securityContext: {
+          runAsUser: 1000,
+          runAsNonRoot: true,
+          fsGroup: 2000,
         },
       },
+    },
   },
 }

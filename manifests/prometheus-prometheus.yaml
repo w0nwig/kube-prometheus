@@ -2,6 +2,10 @@ apiVersion: monitoring.coreos.com/v1
 kind: Prometheus
 metadata:
   labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/name: prometheus-k8s
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: v2.22.1
     prometheus: k8s
   name: k8s
   namespace: monitoring
@@ -11,11 +15,19 @@ spec:
     - name: alertmanager-main
       namespace: monitoring
       port: web
-  image: quay.io/prometheus/prometheus:v2.20.0
+  image: quay.io/prometheus/prometheus:v2.22.1
   nodeSelector:
     kubernetes.io/os: linux
+  podMetadata:
+    labels:
+      app.kubernetes.io/component: prometheus
+      app.kubernetes.io/name: prometheus-k8s
+      app.kubernetes.io/part-of: kube-prometheus
+      app.kubernetes.io/version: v2.22.1
   podMonitorNamespaceSelector: {}
   podMonitorSelector: {}
+  probeNamespaceSelector: {}
+  probeSelector: {}
   replicas: 2
   resources:
     requests:
@@ -31,4 +43,4 @@ spec:
   serviceAccountName: prometheus-k8s
   serviceMonitorNamespaceSelector: {}
   serviceMonitorSelector: {}
-  version: v2.20.0
+  version: v2.22.1

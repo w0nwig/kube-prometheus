@@ -1,7 +1,5 @@
 SHELL=/bin/bash -o pipefail
 
-export GO111MODULE=on
-
 BIN_DIR?=$(shell pwd)/tmp/bin
 
 EMBEDMD_BIN=$(BIN_DIR)/embedmd
@@ -35,7 +33,7 @@ vendor: $(JB_BIN) jsonnetfile.json jsonnetfile.lock.json
 
 .PHONY: fmt
 fmt: $(JSONNETFMT_BIN)
-	find . -name 'vendor' -prune -o -name '*.libsonnet' -o -name '*.jsonnet' -print | \
+	find . -name 'vendor' -prune -o -name '*.libsonnet' -print -o -name '*.jsonnet' -print | \
 		xargs -n 1 -- $(JSONNETFMT_BIN) $(JSONNETFMT_ARGS) -i
 
 .PHONY: test
@@ -52,4 +50,4 @@ $(BIN_DIR):
 
 $(TOOLING): $(BIN_DIR)
 	@echo Installing tools from scripts/tools.go
-	@cat scripts/tools.go | grep _ | awk -F'"' '{print $$2}' | GOBIN=$(BIN_DIR) xargs -tI % go install %
+	@cd scripts && cat tools.go | grep _ | awk -F'"' '{print $$2}' | xargs -tI % go build -modfile=go.mod -o $(BIN_DIR) %
